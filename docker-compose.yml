@@ -1,0 +1,112 @@
+version: '3.3'
+services:
+  
+  laravel_web:
+    build:
+      context: ./laravel_web
+      dockerfile: Dockerfile
+      args:
+        USER_ID: ${UID}
+    image: laravel_web
+    container_name: laravel_web
+    restart: unless-stopped
+    tty: true    
+    working_dir: /var/www
+    environment:
+      LOG_FILE: web.log
+    volumes:
+      - "/etc/timezone:/etc/timezone:ro"
+      - "/etc/localtime:/etc/localtime:ro"
+      - ./src/:/var/www
+      - ./laravel_web/php.conf:/usr/local/etc/php-fpm.d/zzz-phpSettings.conf
+      - ./laravel_web/php_fpm.ini:/usr/local/etc/php/conf.d/local.ini
+      - ./laravel_web/run.sh:/var/www/run.sh
+      - ./logs/php:/var/log/
+      - ./logs/app:/var/www/storage/logs/
+    networks:
+      - net-nginx
+      - net-queue
+      - net-db
+    depends_on:
+      - "mysql"
+      - "redis"
+
+  laravel_worker:
+    build:
+      context: ./laravel_worker
+      dockerfile: Dockerfile
+      args:
+        USER_ID: ${UID}
+    image: laravel_worker
+    restart: unless-stopped
+    command: ["./run.sh"]
+    tty: true
+    working_dir: /var/www
+    environment:
+      LOG_FILE: worker.log
+    volumes:
+      - ./src/:/var/www
+      - ./laravel_worker/run.sh:/var/www/run.sh
+      - ./logs/app:/var/www/storage/logs/
+    networks:
+      - net-queue
+      - net-db
+    depends_on:
+      - "laravel_web"
+    
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    restart: unless-stopped
+    tty: true
+    ports:
+      - "8888:80"
+    volumes:
+      - "/etc/timezone:/etc/timezone:ro"
+      - "/etc/localtime:/etc/localtime:ro"
+      - ./src/:/var/www
+      - ./nginx/:/etc/nginx/conf.d/
+      - ./logs/nginx:/var/log/nginx/
+    networks:
+      - net-nginx
+    depends_on:
+      - "laravel_web"
+
+  mysql:
+    image: mysql:8.1
+    container_name: mysql
+    restart: unless-stopped
+    command: --default-authentication-plugin=mysql_native_password
+    tty: true
+    ports:
+      - "3300:3306"
+    volumes:
+      - database:/var/lib/mysql/
+      - database:/var/lib/mysql-files/
+      - ./mysql/my.cnf:/etc/mysql/my.cnf
+      - ./mysql/user.sql:/docker-entrypoint-initdb.d/1.sql
+    environment:
+      MYSQL_ROOT_PASSWORD: example
+      MYSQL_DATABASE: app_db
+    networks:
+      - net-db
+
+  redis:
+    image: redis:6.2
+    container_name: redis
+    networks:
+      - net-queue
+    volumes:
+      - redis:/data
+
+#Docker Networks
+networks:
+  net-nginx:
+  net-queue:
+  net-db:
+
+#Volumes
+volumes:
+  database:
+  redis:
+  logs:
